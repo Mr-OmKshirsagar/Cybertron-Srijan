@@ -88,6 +88,25 @@ export async function getDocumentSession(sessionId: string) {
 }
 
 /**
+ * Verify document authenticity via in-memory 3-layer forensic audit
+ */
+export async function verifyAuthenticity(file: File, sessionId?: string) {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (sessionId) {
+    formData.append("sessionId", sessionId);
+  }
+
+  const response = await apiClient.post("/api/documents/verify-authenticity", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+
+  return response.data;
+}
+
+/**
  * Server health check
  */
 export async function checkHealth() {
@@ -97,6 +116,7 @@ export async function checkHealth() {
 
 export default {
   analyzeDocument,
+  verifyAuthenticity,
   queryChat,
   getTasks,
   createTask,

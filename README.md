@@ -12,6 +12,11 @@ LegalLens answers the critical questions traditional AI tools miss:
 ## 🌟 Key Architecture & Non-Functional Guarantees
 
 * **Zero Persistent File Storage:** Raw documents (`.pdf`, `.docx`, `.png`, `.jpg`) are processed strictly in an in-memory buffer (`multer.memoryStorage()`) and never written to disk or blob storage. Memory buffers are immediately wiped (`req.file.buffer = null`) post-embedding.
+* **Document Authenticity & Forensic Verification Pipeline:** Detects tampering, digital splices, and fraudulent dates across 3 progressive in-memory audit layers:
+  1. *Layer 1 (Computer Vision & ELA):* Sharp Error Level Analysis ($Q=95$), pixel-by-pixel delta matrix, and sliding window variance detection to spot Photoshop inserts and digit edits.
+  2. *Layer 2 (Statutory & QR Scanner):* `@zxing/library` optical QR and 2D barcode decoding validating official state registries (StockHolding, GRAS Mahakosh, Kaveri, SRO) with OCR fallback.
+  3. *Layer 3 (Semantic & Chronology Auditor):* Gemini legal reasoning enforcing the mandatory Indian Tenancy Chronology Rule ($\text{Stamp Purchase Date} \le \text{Execution Date} \le \text{Commencement Date}$), bilateral party reconciliation, and $\ge 2$ witness signatures.
+  4. *Composite Scorer:* Computes weighted score $(0.25 \times S_{\text{Forensic}} + 0.40 \times S_{\text{Statutory}} + 0.35 \times S_{\text{Semantic}})$ with safety overrides.
 * **Vector Persistence with Ephemeral TTL:** Structured clause extractions and 768-dimensional dense embeddings reside in **MongoDB Atlas Vector Search** with a 24-hour Time-to-Live (`TTL`) index for automatic expiration.
 * **Graph-Augmented RAG Copilot:** Questions are answered via hybrid retrieval: vector search + 1-hop adjacency traversal over `connectedClauses` metadata, grounded with strict citations (`[Cl. X (p. Y)]`).
 * **Client-Side Voice Player & Phonetic Sanitizer:** Converts answers to natural spoken audio via Web Speech Synthesis API, stripping Markdown syntax, formatting Rupee amounts into words (`₹20,000` $\rightarrow$ *"twenty thousand rupees"*), and converting citations into natural phrasing.
@@ -69,10 +74,12 @@ flowchart TD
 | Layer | Technology | Key Capabilities |
 | :--- | :--- | :--- |
 | **Frontend UI** | React 19, TypeScript, Vite 7 | Tri-Pane Workspace, Reactive Context, Radix UI, Lucide Icons |
+| **Forensic Vision** | Sharp (^0.35.4) | In-memory Error Level Analysis ($Q=95$), raw RGB delta matrices, splice detection |
+| **Barcode Scanner** | @zxing/library (^0.23.0) | Optical 2D QR / Data Matrix decoder with hybrid binarization for state e-Stamps |
 | **Styling** | Tailwind CSS 4, Custom Modern CSS | High-contrast dark theme, glassmorphism, responsive canvas |
 | **Voice / TTS** | Web Speech Synthesis API | Pre-TTS phonetic cleaner, sentence boundary sync (`onboundary`) |
 | **Backend** | Node.js 20+, Express 4 | In-memory Multer, REST endpoints, SSE streaming, HMAC signatures |
-| **AI Reasoning** | Google Gemini (3.5 / 2.5 Flash) | Structured JSON contract analysis, risk evaluation, RAG copilot |
+| **AI Reasoning** | Google Gemini (3.5 / 2.5 Flash) | Structured JSON contract analysis, chronology validation, RAG copilot |
 | **Embeddings** | `text-embedding-004` | 768-dimensional dense vector embeddings |
 | **Database** | MongoDB Atlas | Ephemeral Vector Search (`$vectorSearch`), 24h TTL indexes |
 | **Task Queue** | Agenda.js | MongoDB-backed job scheduler, automated email dispatches |
@@ -91,28 +98,35 @@ flowchart TD
 │   │   │   ├── mailer.js          # Nodemailer SMTP transporter & preview logger
 │   │   │   └── agenda.js          # Agenda scheduler & reminder jobs
 │   │   ├── controllers/
-│   │   │   ├── analyzeController.js # In-memory upload, Gemini analysis & vector write
-│   │   │   ├── chatController.js  # Vector search + Graph RAG pipeline
-│   │   │   └── taskController.js  # HMAC action validation & task state
+│   │   │   ├── analyzeController.js    # In-memory upload, concurrent Gemini analysis & authenticity audit
+│   │   │   ├── authenticityController.js # 3-layer authenticity verification orchestrator
+│   │   │   ├── chatController.js       # Vector search + Graph RAG pipeline
+│   │   │   └── taskController.js       # HMAC action validation & task state
 │   │   ├── middleware/
 │   │   │   ├── uploadMemory.js    # RAM-only Multer storage (25 MB max)
 │   │   │   └── errorHandler.js    # Global API error interception
 │   │   ├── models/
+│   │   │   ├── AuthenticityAudit.js # Mongoose schema for authenticity_audits (24h TTL)
 │   │   │   ├── VectorClause.js    # Mongoose schema for document_vectors (24h TTL)
 │   │   │   └── TaskReminder.js    # Mongoose schema for task_reminders
 │   │   ├── routes/
-│   │   │   ├── documentRoutes.js  # /api/documents/*
+│   │   │   ├── documentRoutes.js  # /api/documents/* (/analyze, /verify-authenticity)
 │   │   │   ├── chatRoutes.js      # /api/chat/*
 │   │   │   └── taskRoutes.js      # /api/tasks/*
 │   │   ├── services/
+│   │   │   ├── forensicService.js # In-memory Sharp ELA & block variance calculator
+│   │   │   ├── qrScannerService.js# ZXing optical QR & e-Stamp barcode extractor
+│   │   │   ├── statutoryService.js# Gemini chronology & party reconciliation auditor
 │   │   │   ├── geminiService.js   # Gemini 3.5/2.5 Flash & text-embedding-004 calls
 │   │   │   ├── vectorService.js   # Atlas $vectorSearch & cosine fallback
 │   │   │   ├── graphService.js    # 1-hop clause DAG adjacency traversal
 │   │   │   └── notificationService.js # Responsive HTML email templates
 │   │   └── utils/
+│   │       ├── authenticityScorer.js # Composite weighted scorer (0-100) & badge generator
 │   │       ├── ocrCleaner.js      # In-memory PDF (pdf-parse) & DOCX (mammoth) parser
 │   │       └── tokenGenerator.js  # Cryptographic HMAC-SHA256 action tokens
 │   ├── server.js                  # Express app initialization & port binding
+│   ├── test-authenticity.js       # 27-test automated authenticity suite (100% pass)
 │   ├── package.json
 │   ├── render.yaml                # Render deployment configuration
 │   └── .env.example
@@ -241,22 +255,37 @@ Confirms 0 TypeScript errors and builds client assets into `dist/public`.
 
 ## 📡 REST API Specifications
 
-### 1. Document Ingestion
+### 1. Document Ingestion & Analysis
 * **`POST /api/documents/analyze`**
   * **Headers:** `multipart/form-data`
   * **Payload:** `file` (Buffer, max 25MB), `recipientEmail` (string)
+  * **Response:** Returns contract intelligence report, DAG relationships, tasks, and parallel `authenticityAudit` metadata.
+
+### 2. Document Authenticity & Forensic Verification
+* **`POST /api/documents/verify-authenticity`**
+  * **Headers:** `multipart/form-data`
+  * **Payload:** `file` (Buffer, max 25MB), `sessionId` (optional string)
   * **Response:**
     ```json
     {
       "success": true,
-      "sessionId": "sess_1788591637817_7dkql8J6",
-      "summary": { "documentType": "Residential Rental Agreement", "fairnessScore": 64, "bias": "Counterparty-Favored", "clauseCount": 24 },
-      "riskScorecard": { "overallScore": 68, "verdict": "Elevated exposure", "breakdown": { "termination": 82, "financial": 74, "liability": 48, "deposit": 31 } },
-      "financialLedger": { "fixedCommitments": [...], "contingentLiabilities": [...] },
-      "obligations": { "user": [...], "counterparty": [...] },
-      "dag": { "nodes": [...], "edges": [...] },
-      "tasks": [...],
-      "tasksDetected": 3
+      "sessionId": "sess_1788598373934_RisE-e9n",
+      "score": 88,
+      "verdict": "MODERATE_AUTHENTICITY_VERIFIED",
+      "sourceType": "COMPRESSED_SCAN_OR_MESSAGING_APP",
+      "badges": [
+        { "label": "e-Stamp QR Verified", "status": "PASS", "details": "StockHolding Corp Cert #IN-MH90283746192837" },
+        { "label": "Image Compression Integrity", "status": "PASS", "details": "Uniform ELA profile across clauses" },
+        { "label": "Chronological Sequence", "status": "PASS", "details": "Stamp (12/02/26) precedes Signing (15/02/26)" },
+        { "label": "Witness Verification", "status": "PASS", "details": "2 independent witnesses attested" }
+      ],
+      "auditReport": {
+        "forensics": { "elaPassed": true, "tamperAlert": false, "avgCompressionDelta": 4.12, "maxCompressionDiscrepancy": 9.8 },
+        "statutory": { "qrDetected": true, "registryDomain": "gras.mahakosh.gov.in", "certificateNumber": "IN-MH90283746192837", "stampAmountPaid": "₹500", "verified": true },
+        "semantics": { "chronologySound": true, "stampDate": "2026-02-12", "executionDate": "2026-02-15", "partiesMatched": true, "witnessesFound": 2 }
+      },
+      "discrepancies": [],
+      "flaggedIssues": ["EXIF metadata stripped (typical for WhatsApp/Telegram forwards)"]
     }
     ```
 

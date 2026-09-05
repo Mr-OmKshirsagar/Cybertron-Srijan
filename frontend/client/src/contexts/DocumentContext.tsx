@@ -52,10 +52,54 @@ export interface DAGEdge {
   type?: "solid" | "dashed";
 }
 
+export interface AuthenticityBadge {
+  label: string;
+  status: "PASS" | "WARN" | "FAIL";
+  details: string;
+}
+
+export interface AuthenticityAudit {
+  sessionId?: string;
+  fileName?: string;
+  sourceType: "COMPRESSED_SCAN_OR_MESSAGING_APP" | "DIGITAL_PDF" | "DIRECT_IMAGE";
+  score: number;
+  verdict: "VERIFIED_VALID" | "MODERATE_AUTHENTICITY_VERIFIED" | "CAUTION_INCOMPLETE" | "HIGH_RISK_TAMPERED";
+  auditReport: {
+    forensics: {
+      elaPassed: boolean;
+      tamperAlert: boolean;
+      avgCompressionDelta: number;
+      maxCompressionDiscrepancy: number;
+      details: string;
+    };
+    statutory: {
+      qrDetected: boolean;
+      registryDomain: string | null;
+      certificateNumber: string | null;
+      stampAmountPaid: string | null;
+      verified: boolean;
+      details: string;
+    };
+    semantics: {
+      chronologySound: boolean;
+      stampDate: string | null;
+      executionDate: string | null;
+      commencementDate: string | null;
+      partiesMatched: boolean;
+      witnessesFound: number;
+      details: string;
+    };
+  };
+  badges: AuthenticityBadge[];
+  discrepancies: string[];
+  flaggedIssues?: string[];
+}
+
 export interface DocumentData {
   documentName: string;
   documentType: string;
   sessionId: string;
+  authenticityAudit?: AuthenticityAudit;
   summary: {
     documentType: string;
     fairnessScore: number;
@@ -117,6 +161,47 @@ const defaultDemoData: DocumentData = {
   documentName: "Residential Rental Agreement",
   documentType: "Residential Rental Agreement",
   sessionId: "sess_demo_default",
+  authenticityAudit: {
+    sessionId: "sess_demo_default",
+    fileName: "Residential Rental Agreement",
+    sourceType: "COMPRESSED_SCAN_OR_MESSAGING_APP",
+    score: 88,
+    verdict: "MODERATE_AUTHENTICITY_VERIFIED",
+    auditReport: {
+      forensics: {
+        elaPassed: true,
+        tamperAlert: false,
+        avgCompressionDelta: 4.12,
+        maxCompressionDiscrepancy: 9.8,
+        details: "Uniform ELA profile across clauses with typical mobile messaging compression.",
+      },
+      statutory: {
+        qrDetected: true,
+        registryDomain: "gras.mahakosh.gov.in",
+        certificateNumber: "IN-MH90283746192837",
+        stampAmountPaid: "₹500",
+        verified: true,
+        details: "StockHolding / GRAS e-Stamp registered under Article 36(a).",
+      },
+      semantics: {
+        chronologySound: true,
+        stampDate: "2026-02-12",
+        executionDate: "2026-02-15",
+        commencementDate: "2026-03-01",
+        partiesMatched: true,
+        witnessesFound: 2,
+        details: "Stamp purchase precedes execution date. 2 witness attestations verified.",
+      },
+    },
+    badges: [
+      { label: "e-Stamp QR Verified", status: "PASS", details: "StockHolding Corp Cert #IN-MH90283746192837" },
+      { label: "Image Compression Integrity", status: "PASS", details: "Uniform ELA profile across clauses" },
+      { label: "Chronological Sequence", status: "PASS", details: "Stamp Date (12/02/26) precedes Signing (15/02/26)" },
+      { label: "Witness Verification", status: "PASS", details: "2 independent witnesses attested" },
+    ],
+    discrepancies: [],
+    flaggedIssues: ["EXIF metadata stripped (typical for messaging app transfer)"],
+  },
   summary: {
     documentType: "Residential Rental Agreement",
     fairnessScore: 72,
@@ -301,6 +386,7 @@ interface DocumentContextType {
   uploadError: string | null;
   tasks: TaskItem[];
   uploadDocument: (file: File, email?: string) => Promise<boolean>;
+  verifyDocumentAuthenticity: (file: File) => Promise<AuthenticityAudit | null>;
   askCopilot: (question: string) => Promise<{ answer: string; citations: any[]; connectedClauses: string[] }>;
   toggleTaskStatus: (taskId: string) => Promise<void>;
   addNewTask: (title: string, deadline: string, clauseRef?: string) => Promise<void>;
@@ -385,6 +471,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           documentName: res.documentName || file.name,
           documentType: res.documentType || "Analyzed Contract",
           sessionId: res.sessionId,
+          authenticityAudit: res.authenticityAudit || documentData.authenticityAudit,
           summary: res.summary,
           riskScorecard: res.riskScorecard,
           financialLedger: res.financialLedger,
@@ -425,6 +512,25 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setUploadError(err.message || "Failed to analyze document");
       setIsAnalyzing(false);
       return false;
+    }
+  };
+
+  const verifyDocumentAuthenticity = async (file: File): Promise<AuthenticityAudit | null> => {
+    try {
+      const res = await api.verifyAuthenticity(file, sessionId);
+      if (res.success) {
+        const updated: DocumentData = {
+          ...documentData,
+          authenticityAudit: res,
+        };
+        setDocumentData(updated);
+        sessionStorage.setItem("legallens_active_doc", JSON.stringify(updated));
+        return res;
+      }
+      return null;
+    } catch (err: any) {
+      console.error("Failed to verify document authenticity:", err);
+      return null;
     }
   };
 
@@ -472,6 +578,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         uploadError,
         tasks,
         uploadDocument,
+        verifyDocumentAuthenticity,
         askCopilot,
         toggleTaskStatus,
         addNewTask,
