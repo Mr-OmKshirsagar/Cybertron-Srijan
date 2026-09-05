@@ -93,6 +93,20 @@ npm run build
 
 ---
 
+### Test 5: Document Authenticity & Forensic Pipeline Verification
+```bash
+cd backend
+node test-authenticity.js
+```
+**What it tests (All 3 Layers + Composite Scorer):**
+* **Layer 1 (Computer Vision & ELA):** In-memory Sharp recompression ($Q=95$), pixel-by-pixel delta matrix, and sliding window variance detection for digital splices and compression tampering.
+* **Layer 2 (Statutory & QR Scanner):** ZXing 2D barcode & QR optical decoding, StockHolding/GRAS certificate validation, and OCR text fallback.
+* **Layer 3 (Semantic & Chronology Auditor):** Gemini/rule-based validation of the mandatory Indian Tenancy Chronology Rule ($\text{Stamp Purchase Date} \le \text{Execution Date} \le \text{Commencement Date}$), bilateral party reconciliation, and $\ge 2$ witness signatures.
+* **Composite Scorer & Safety Caps:** Weighted score $(0.25 \times S_{\text{Forensic}} + 0.40 \times S_{\text{Statutory}} + 0.35 \times S_{\text{Semantic}})$ and critical safety override capping tampered documents to $\le 39$.
+* **Expected Output:** `27 / 27 TESTS PASSED (100%)`.
+
+---
+
 ## 3. Manual Feature-by-Feature Testing Checklist
 
 ### Feature 1: Health & Database Connectivity
@@ -216,18 +230,40 @@ To verify the email webhook security:
 
 ---
 
+### Feature 8: Document Authenticity & Forensic Inspection
+1. In your browser at **[http://localhost:3000](http://localhost:3000)**, inspect the **Statutory & Forensic Verification** card on the dashboard.
+2. Confirm the presence of:
+   * **Composite Authenticity Score:** e.g. `88 / 100` with high-contrast indicator.
+   * **Verdict Pill:** `MODERATE AUTHENTICITY VERIFIED` / `VERIFIED VALID`.
+   * **4 Live Integrity Badges:**
+     - `e-Stamp QR Verified` (StockHolding Corp / GRAS cert number)
+     - `Image Compression Integrity` (Uniform ELA profile)
+     - `Chronological Sequence` (Stamp Date precedes Signing)
+     - `Witness Verification` (2 independent witnesses attested)
+3. Click **"View Forensic Audit"**:
+   * **Pass Criteria:** Opens the multi-layer forensic modal displaying real-time metrics across:
+     - **Layer 1:** Sharp ELA recompression ($Q=95$), average pixel delta $\Delta$, and max regional spike.
+     - **Layer 2:** Government registry portal (`gras.mahakosh.gov.in`), e-Stamp certificate number, and duty amount.
+     - **Layer 3:** Indian Tenancy chronology test ($\text{Stamp} \le \text{Execution} \le \text{Commencement}$), preamble party reconciliation, and witness count.
+     - **Zero-Disk Guarantee:** Confirmation that all processing occurred in RAM.
+
+---
+
 ## 4. Test Summary Matrix
 
 | Module | Feature Tested | Verification Method | Status |
 | :--- | :--- | :--- | :--- |
 | **Backend** | Health & MongoDB Atlas Connectivity | `GET /api/health` | ✅ Verified |
 | **Backend** | In-Memory Privacy Ingestion | `POST /api/documents/analyze` | ✅ Verified |
+| **Backend** | Document Authenticity & Forensic Engine | `POST /api/documents/verify-authenticity` | ✅ Verified |
+| **Backend** | ELA & Optical QR Scanner | `test-authenticity.js` (27/27 Tests) | ✅ Verified |
 | **Backend** | Vector Embeddings & Ephemeral TTL | 24-hr TTL Index on `document_vectors` | ✅ Verified |
 | **Backend** | Graph-Augmented RAG Copilot | `POST /api/chat/query` | ✅ Verified |
 | **Backend** | Automated Deadline Email Scheduler | Agenda.js & Nodemailer (T−72h, T−24h, T−5h) | ✅ Verified |
 | **Backend** | HMAC One-Click Action Security | `GET /api/tasks/action` | ✅ Verified |
 | **Frontend** | Interactive Document Dropzone | Upload modal in `App.tsx` | ✅ Verified |
-| **Frontend** | Live Contract Intelligence Dashboard | Reactive state in `Home.tsx` | ✅ Verified |
+| **Frontend** | Authenticity & Forensic Card | Live score & badge cluster in `Home.tsx` | ✅ Verified |
+| **Frontend** | Multi-Layer Forensic Inspection Modal | 3-layer deep-dive drawer in `Home.tsx` | ✅ Verified |
 | **Frontend** | Clause Intelligence & Search | Filters & search in `ClauseIntelligence.tsx` | ✅ Verified |
 | **Frontend** | Interactive Clause Relationship DAG | Node hopping in `ClauseGraph.tsx` | ✅ Verified |
 | **Frontend** | Speech Sanitizer & TTS Player | Web Speech API in `speechSanitizer.ts` | ✅ Verified |

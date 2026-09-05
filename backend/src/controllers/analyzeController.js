@@ -6,6 +6,7 @@ import { generateActionToken } from "../utils/tokenGenerator.js";
 import TaskReminder from "../models/TaskReminder.js";
 import { scheduleTaskReminders } from "../config/agenda.js";
 import { isConnected } from "../config/db.js";
+import { runFullAuthenticityAudit } from "./authenticityController.js";
 
 // Session cache to support fast tab switching and session sharing
 const sessionCache = new Map();
@@ -32,15 +33,24 @@ export async function analyzeDocument(req, res, next) {
     // 1. In-memory content extraction
     const extraction = await extractDocumentContent(buffer, mimetype, originalname);
 
-    // 2. Intelligence extraction via Gemini
-    const report = await geminiService.analyzeDocument({
-      text: extraction.text,
-      isImage: extraction.isImage,
-      imageBuffer: extraction.imageBuffer,
-      mimeType: extraction.mimeType,
-      filename: originalname,
-      pageCount: extraction.pageCount,
-    });
+    // 2. Intelligence extraction via Gemini + Authenticity Forensic Audit in parallel
+    const [report, authenticityAudit] = await Promise.all([
+      geminiService.analyzeDocument({
+        text: extraction.text,
+        isImage: extraction.isImage,
+        imageBuffer: extraction.imageBuffer,
+        mimeType: extraction.mimeType,
+        filename: originalname,
+        pageCount: extraction.pageCount,
+      }),
+      runFullAuthenticityAudit({
+        buffer,
+        mimetype,
+        originalname,
+        text: extraction.text,
+        sessionId,
+      }),
+    ]);
 
     // 3. Batch generate vector embeddings for clauses
     const clausesToEmbed = report.clauses || [];
@@ -131,6 +141,7 @@ export async function analyzeDocument(req, res, next) {
       sessionId,
       documentName: originalname,
       documentType: report.documentType,
+      authenticityAudit,
       summary: {
         documentType: report.documentType,
         fairnessScore: report.fairnessScore,
